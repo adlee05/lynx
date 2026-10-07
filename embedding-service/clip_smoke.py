@@ -4,6 +4,7 @@ import torch
 import random
 from pathlib import Path
 import numpy as np
+import faiss
 
 # cache params
 MODEL_NAME = "ViT-B-32"
@@ -105,6 +106,11 @@ else:
 
 print("Image embedding shape:", image_features.shape)
 
+image_vectors = np.ascontiguousarray(image_features.numpy(), dtype=np.float32)
+index = faiss.IndexFlatIP(image_vectors.shape[1])
+index.add(image_vectors)
+print(f"FAISS index contains {index.ntotal} image vectors.")
+
 # query
 query = "a cat"
 text_tokens = tokenizer([query]).to(device)
@@ -117,8 +123,16 @@ print("Text embedding shape:", text_features.shape)
 # find similarity
 text_features = text_features / text_features.norm(dim=-1, keepdim=True)
 
-similarities = (image_features @ text_features.cpu().T).squeeze(1)
-top_scores, top_positions = similarities.topk(k=min(5, len(valid_image_paths)))
+query_vector = np.ascontiguousarray(
+    text_features.cpu().numpy(),
+    dtype=np.float32,
+)
+top_scores, top_positions = index.search(
+    query_vector,
+    min(5, index.ntotal),
+)
+top_scores = top_scores[0]
+top_positions = top_positions[0]
 
 print(f"Top results for: {query}")
 for rank, (score, position) in enumerate(zip(top_scores.tolist(), top_positions.tolist()), 1):
