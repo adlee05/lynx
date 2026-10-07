@@ -3,56 +3,106 @@ import open_clip
 import torch
 import random
 from pathlib import Path
+import numpy as np
+
+# cache params
+MODEL_NAME = "ViT-B-32"
+PRETRAINED = "laion2b_s34b_b79k"
+IMAGE_LIMIT = 500
+SAMPLE_SEED = 42
+BATCH_SIZE = 32
+
+CACHE_PATH = Path(__file__).resolve().parent / "image_embeddings.npz"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 image_dir = Path(__file__).resolve().parents[1] / "dataset" / "val2017"
 all_image_paths = sorted(image_dir.glob("*.jpg"))
-image_paths = random.Random(42).sample(
+image_paths = random.Random(SAMPLE_SEED).sample(
     all_image_paths,
-    k=min(500, len(all_image_paths)),
+    k=min(IMAGE_LIMIT, len(all_image_paths)),
 )
-BATCH_SIZE = 32
 
 print(f"Found {len(all_image_paths)} images; selected {len(image_paths)}")
 
+
+expected_image_names = [path.name for path in image_paths]
+cached_features = None
+
+if CACHE_PATH.exists():
+    try:
+        with np.load(CACHE_PATH, allow_pickle=False) as cache:
+            cache_matches = (
+                str(cache["model_name"].item()) == MODEL_NAME
+                and str(cache["pretrained"].item()) == PRETRAINED
+                and cache["image_names"].tolist() == expected_image_names
+            )
+
+            if cache_matches:
+                cached_features = torch.from_numpy(
+                    cache["image_features"].copy()
+                )
+                print("Compatible image embedding cache found.")
+            else:
+                print("Cache settings or image list changed; rebuilding it.")
+    except (OSError, KeyError, ValueError) as error:
+        print(f"Could not read cache; rebuilding it: {error}")
+
 model, _, preprocess = open_clip.create_model_and_transforms(
-        "ViT-B-32",
-        pretrained="laion2b_s34b_b79k",
+        MODEL_NAME,
+        pretrained=PRETRAINED,
     )
 model = model.to(device).eval()
-tokenizer = open_clip.get_tokenizer("ViT-B-32")
+tokenizer = open_clip.get_tokenizer(MODEL_NAME)
 
 print("Device:", device)
 print("Model loaded")
 
-image_batches = []
-valid_image_paths = []
-for start in range(0, len(image_paths), BATCH_SIZE):
-    batch_paths = image_paths[start : start + BATCH_SIZE]
-    batch_images = []
-    batch_valid_paths = []
+if cached_features is not None:
+    image_features = cached_features
+    valid_image_paths = image_paths
+    print("Loaded image embeddings from cache.")
+else:
+    image_batches = []
+    valid_image_paths = []
 
-    for path in batch_paths:
-        try:
-            with Image.open(path) as image:
-                batch_images.append(preprocess(image.convert("RGB")))
-            batch_valid_paths.append(path)
-        except Exception as error:
-            print(f"Skipping {path.name}: {error}")
+    for start in range(0, len(image_paths), BATCH_SIZE):
+        batch_paths = image_paths[start : start + BATCH_SIZE]
+        batch_images = []
+        batch_valid_paths = []
 
-    if not batch_images:
-        continue
+        for path in batch_paths:
+            try:
+                with Image.open(path) as image:
+                    batch_images.append(preprocess(image.convert("RGB")))
+                batch_valid_paths.append(path)
+            except Exception as error:
+                print(f"Skipping {path.name}: {error}")
 
-    image_tensor = torch.stack(batch_images).to(device)
-    with torch.inference_mode():
-        image_features = model.encode_image(image_tensor)
+        if not batch_images:
+            continue
 
-    image_features = image_features / image_features.norm(dim=-1, keepdim=True)
-    image_batches.append(image_features.float().cpu())
-    valid_image_paths.extend(batch_valid_paths)
+        image_tensor = torch.stack(batch_images).to(device)
+        with torch.inference_mode():
+            batch_features = model.encode_image(image_tensor)
 
-image_features = torch.cat(image_batches)
+        batch_features = batch_features / batch_features.norm(
+            dim=-1, keepdim=True
+        )
+        image_batches.append(batch_features.float().cpu())
+        valid_image_paths.extend(batch_valid_paths)
+
+    image_features = torch.cat(image_batches)
+
+    np.savez_compressed(
+        CACHE_PATH,
+        image_features=image_features.numpy(),
+        image_names=np.array([path.name for path in valid_image_paths]),
+        model_name=np.array(MODEL_NAME),
+        pretrained=np.array(PRETRAINED),
+    )
+    print(f"Saved image embeddings to {CACHE_PATH}")
+
 print("Image embedding shape:", image_features.shape)
 
 # query
