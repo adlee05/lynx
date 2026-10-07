@@ -1,6 +1,7 @@
 """FastAPI endpoints for Lynx semantic image retrieval."""
 
 from contextlib import asynccontextmanager
+import os
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
@@ -13,8 +14,13 @@ from retrieval_engine import RetrievalEngine
 async def lifespan(app: FastAPI):
     # Load the CLIP model and vector index once when the service starts,
     # instead of loading them for every HTTP request.
-    app.state.engine = RetrievalEngine()
-    yield
+    app.state.engine = RetrievalEngine(
+        vector_backend=os.getenv("LYNX_VECTOR_BACKEND", "faiss").lower()
+    )
+    try:
+        yield
+    finally:
+        app.state.engine.close()
 
 
 app = FastAPI(title="Lynx Embedding Service", version="0.1.0", lifespan=lifespan)
@@ -45,6 +51,7 @@ def health(request: Request) -> dict[str, int | str]:
         "model": engine.model_name,
         "embedding_dimension": engine.embedding_dimension,
         "device": engine.device,
+        "vector_backend": engine.vector_backend,
         "indexed_images": engine.image_count,
     }
 

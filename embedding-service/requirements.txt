@@ -7,3 +7,5 @@ faiss-cpu==1.15.1
 Pillow==12.3.0
 fastapi
 uvicorn[standard]
+qdrant-client
+qdrant-client

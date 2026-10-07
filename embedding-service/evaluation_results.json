@@ -1,7 +1,7 @@
 {
   "dataset": "COCO 2017 validation captions, restricted to cached image subset",
   "model": "ViT-B-32/laion2b_s34b_b79k",
-  "device": "cuda",
+  "device": "cpu",
   "image_count": 500,
   "caption_query_count": 2501,
   "embedding_dimension": 512,
@@ -11,15 +11,15 @@
     "ef_search": 64
   },
   "text_embedding": {
-    "total_seconds_batched": 9.6145828789995,
-    "mean_ms_per_caption_batched": 3.844295433426429
+    "total_seconds_batched": 70.2338487900015,
+    "mean_ms_per_caption_batched": 28.082306593363256
   },
   "exact_flat": {
-    "index_build_seconds": 0.00015171499944699463,
+    "index_build_seconds": 0.00017571900025359355,
     "search_latency": {
-      "mean_ms": 0.019570339064374248,
-      "p50_ms": 0.019013,
-      "p95_ms": 0.022762
+      "mean_ms": 0.02278479288284686,
+      "p50_ms": 0.022007,
+      "p95_ms": 0.02657
     },
     "semantic_retrieval": {
       "recall@1": 0.6765293882447021,
@@ -29,11 +29,11 @@
     }
   },
   "hnsw": {
-    "index_build_seconds": 0.009539912000036566,
+    "index_build_seconds": 0.24105716200028837,
     "search_latency": {
-      "mean_ms": 0.03451968212714914,
-      "p50_ms": 0.034259,
-      "p95_ms": 0.03948
+      "mean_ms": 0.03948457137145142,
+      "p50_ms": 0.038905,
+      "p95_ms": 0.045187
     },
     "semantic_retrieval": {
       "recall@1": 0.6765293882447021,
@@ -47,9 +47,31 @@
       "ann_recall@10": 0.9999600159936026
     }
   },
+  "qdrant_local": {
+    "mode": "persistent local client, temporary disk path; no Qdrant server",
+    "collection_setup_seconds": 0.011556475001270883,
+    "upsert_seconds": 0.14591968000058841,
+    "search_latency": {
+      "mean_ms": 3.4053404150339865,
+      "p50_ms": 3.354573,
+      "p95_ms": 3.926808
+    },
+    "semantic_retrieval": {
+      "recall@1": 0.6765293882447021,
+      "recall@5": 0.9184326269492203,
+      "recall@10": 0.9632147141143542,
+      "mrr@10": 0.7762599722015956
+    },
+    "agreement_with_exact": {
+      "top_k_overlap@1": 1.0,
+      "top_k_overlap@5": 1.0,
+      "top_k_overlap@10": 1.0
+    }
+  },
   "notes": [
     "Semantic recall uses the caption's own COCO image as the relevant target.",
     "HNSW agreement is overlap with exact top-k, not semantic relevance.",
+    "Qdrant measurements use the Python local client, not a Qdrant server deployment.",
     "Caption annotations provide weak relevance labels; results are not human judgments."
   ]
 }

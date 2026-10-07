@@ -1,0 +1,11 @@
+# Python environments and bytecode
+**/.venv/
+**/__pycache__/
+
+# Generated embeddings and local vector database data
+embedding-service/image_embeddings.npz
+embedding-service/qdrant_data/
+
+# Large COCO image data (download locally; keep annotations tracked)
+dataset/val2017/
+dataset/val2017.zip
