@@ -1,18 +1,20 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 )
 
-func hello(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintln(w, "Hello from Go!")
-}
-
 func main() {
-	http.HandleFunc("/hello", hello)
+	// use custom mux
+	mux := http.NewServeMux()
 
-	fmt.Println("Server running on http://localhost:8080")
+	mux.HandleFunc("POST /api/search", searchAPI)
+	mux.HandleFunc("GET /api/images/{filename}", imageAPI)
 
-	http.ListenAndServe(":8080", nil)
+	server := http.Server{
+		Addr : ":8080",
+		Handler : mux,
+	}	
+
+	server.ListenAndServe()
 }
