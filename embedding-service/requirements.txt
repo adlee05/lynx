@@ -5,3 +5,5 @@ torchvision==0.26.0+cu128
 open_clip_torch==3.3.0
 faiss-cpu==1.15.1
 Pillow==12.3.0
+fastapi
+uvicorn[standard]
