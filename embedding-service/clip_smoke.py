@@ -111,29 +111,35 @@ index = faiss.IndexFlatIP(image_vectors.shape[1])
 index.add(image_vectors)
 print(f"FAISS index contains {index.ntotal} image vectors.")
 
-# query
-query = "a cat"
-text_tokens = tokenizer([query]).to(device)
+while True:
+    query = input("\nQuery> ").strip()
+    if query.lower() in {"quit", "exit"}:
+        break
+    if not query:
+        continue
 
-with torch.inference_mode():
-    text_features = model.encode_text(text_tokens)
+    text_tokens = tokenizer([query]).to(device)
+    with torch.inference_mode():
+        text_features = model.encode_text(text_tokens)
 
-print("Text embedding shape:", text_features.shape)
+    text_features = text_features / text_features.norm(
+        dim=-1, keepdim=True
+    )
+    query_vector = np.ascontiguousarray(
+        text_features.cpu().numpy(),
+        dtype=np.float32,
+    )
 
-# find similarity
-text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+    scores, positions = index.search(
+        query_vector,
+        min(5, index.ntotal),
+    )
 
-query_vector = np.ascontiguousarray(
-    text_features.cpu().numpy(),
-    dtype=np.float32,
-)
-top_scores, top_positions = index.search(
-    query_vector,
-    min(5, index.ntotal),
-)
-top_scores = top_scores[0]
-top_positions = top_positions[0]
-
-print(f"Top results for: {query}")
-for rank, (score, position) in enumerate(zip(top_scores.tolist(), top_positions.tolist()), 1):
-    print(f"{rank}. {valid_image_paths[position].name}  cosine={score:.3f}")
+    print(f"Top results for: {query}")
+    for rank, (score, position) in enumerate(
+        zip(scores[0], positions[0]), 1
+    ):
+        print(
+            f"{rank}. {valid_image_paths[position].name} "
+            f"cosine={score:.3f}"
+        )
