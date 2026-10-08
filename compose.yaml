@@ -14,6 +14,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 15
+    restart: unless-stopped
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -22,7 +23,72 @@ services:
       - "6334:6334"
     volumes:
       - lynx_qdrant:/qdrant/storage
+    restart: unless-stopped
+
+  embedding-service:
+    build:
+      context: ./embedding-service
+      dockerfile: Dockerfile
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 10s
+      timeout: 6s
+      start_period: 180s
+      retries: 30
+    environment:
+      HF_HOME: /model-cache
+    volumes:
+      - lynx_model_cache:/model-cache
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgres://lynx:lynx_dev@postgres:5432/lynx?sslmode=disable
+      EMBEDDING_SERVICE_URL: http://embedding-service:8000
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      LYNX_UPLOAD_DIR: /data/uploads
+    command:
+      - /bin/sh
+      - -c
+      - until curl -fsS http://qdrant:6333/collections >/dev/null; do echo 'Waiting for Qdrant'; sleep 2; done; exec /usr/local/bin/lynx
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      embedding-service:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    volumes:
+      - lynx_uploads:/data/uploads
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "3000:80"
+    restart: unless-stopped
 
 volumes:
   lynx_postgres:
   lynx_qdrant:
+  lynx_uploads:
+  lynx_model_cache:

@@ -10,9 +10,30 @@ Semantic image retrieval using pretrained CLIP embeddings and Qdrant vector sear
 - Qdrant stores CLIP vectors with an `owner_id` payload so every search is scoped to the signed-in account.
 - The Python service loads CLIP once and only creates normalized text or image embeddings.
 
-The search slider sets a minimum cosine similarity score. It filters weak matches; it is not a calibrated probability that a result is correct.
+Text search returns up to 10 results with a minimum cosine similarity of `0.19`; image-to-image search uses `0.35` because an image query should match its visual neighbors more closely. These fixed cutoffs filter weak matches; cosine similarity is not a calibrated probability that a result is correct. They can be adjusted in `backend/api.go` as the demo dataset changes.
 
 ## Run locally
+
+### Run the complete stack with Docker Compose
+
+Build and start the client, Go API, CLIP embedding service, PostgreSQL, and Qdrant:
+
+```bash
+docker compose -f compose.yaml up --build -d
+```
+
+Open <http://localhost:3000>. The first start downloads the pretrained CLIP weights and may take a while; later starts reuse the model cache. PostgreSQL data, Qdrant vectors, uploaded photos, and model weights are kept in named Docker volumes. The embedding container uses CPU inference for portability.
+
+To inspect service startup or stop the stack:
+
+```bash
+docker compose -f compose.yaml logs -f
+docker compose -f compose.yaml down
+```
+
+`down` keeps the named data volumes. To remove all data as well, use `docker compose -f compose.yaml down -v`.
+
+### Run services directly on the host
 
 Start PostgreSQL and Qdrant:
 
