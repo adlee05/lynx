@@ -1,0 +1,28 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: lynx
+      POSTGRES_PASSWORD: lynx_dev
+      POSTGRES_DB: lynx
+    ports:
+      - "5433:5432"
+    volumes:
+      - lynx_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lynx -d lynx"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - lynx_qdrant:/qdrant/storage
+
+volumes:
+  lynx_postgres:
+  lynx_qdrant:

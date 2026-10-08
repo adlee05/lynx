@@ -1,75 +1,52 @@
-"""FastAPI endpoints for Lynx semantic image retrieval."""
+"""Minimal CLIP embedding API. Go owns auth, uploads, persistence, and search."""
 
 from contextlib import asynccontextmanager
-import os
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from PIL import UnidentifiedImageError
 
-from retrieval_engine import RetrievalEngine
+from embedding_engine import EmbeddingEngine
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Load the CLIP model and vector index once when the service starts,
-    # instead of loading them for every HTTP request.
-    app.state.engine = RetrievalEngine(
-        vector_backend=os.getenv("LYNX_VECTOR_BACKEND", "faiss").lower()
-    )
-    try:
-        yield
-    finally:
-        app.state.engine.close()
+    app.state.engine = EmbeddingEngine()
+    yield
 
 
-app = FastAPI(title="Lynx Embedding Service", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Lynx CLIP Embedding Service", version="0.2.0", lifespan=lifespan)
 
 
-class SearchRequest(BaseModel):
-    query: str = Field(min_length=1, max_length=512)
-    top_k: int = Field(default=5, ge=1, le=20)
-
-
-class SearchResult(BaseModel):
-    rank: int
-    filename: str
-    image_url: str
-    score: float
-
-
-class SearchResponse(BaseModel):
-    query: str
-    results: list[SearchResult]
+class TextRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=512)
 
 
 @app.get("/health")
-def health(request: Request) -> dict[str, int | str]:
-    engine: RetrievalEngine = request.app.state.engine
+def health(request: Request) -> dict[str, str | int]:
+    engine: EmbeddingEngine = request.app.state.engine
     return {
         "status": "ok",
-        "model": engine.model_name,
-        "embedding_dimension": engine.embedding_dimension,
+        "model": "ViT-B-32/laion2b_s34b_b79k",
+        "dimension": engine.dimension,
         "device": engine.device,
-        "vector_backend": engine.vector_backend,
-        "indexed_images": engine.image_count,
     }
 
 
-@app.post("/search", response_model=SearchResponse)
-def search(body: SearchRequest, request: Request) -> SearchResponse:
-    engine: RetrievalEngine = request.app.state.engine
-    query = body.query.strip()
-    if not query:
-        raise HTTPException(status_code=422, detail="Query must contain non-whitespace text")
-    results = engine.search(query, body.top_k)
-    return SearchResponse(query=query, results=results)
+@app.post("/embed/text")
+def embed_text(body: TextRequest, request: Request) -> dict[str, list[float]]:
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="Text must not be blank")
+    return {"embedding": request.app.state.engine.embed_text(text)}
 
 
-@app.get("/images/{filename}")
-def get_image(filename: str, request: Request) -> FileResponse:
-    engine: RetrievalEngine = request.app.state.engine
-    image_path = engine.image_paths.get(filename)
-    if image_path is None:
-        raise HTTPException(status_code=404, detail="Image not found")
-    return FileResponse(image_path, media_type="image/jpeg")
+@app.post("/embed/image")
+async def embed_image(request: Request) -> dict[str, list[float]]:
+    content = await request.body()
+    if not content or len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Provide an image smaller than 10 MB")
+    try:
+        return {"embedding": request.app.state.engine.embed_image(content)}
+    except UnidentifiedImageError as exc:
+        raise HTTPException(status_code=415, detail="Unsupported image format") from exc

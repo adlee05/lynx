@@ -5,6 +5,9 @@
 # Generated embeddings and local vector database data
 embedding-service/image_embeddings.npz
 embedding-service/qdrant_data/
+embedding-service/users.sqlite3
+embedding-service/uploads/
+backend/uploads/
 
 # Large COCO image data (download locally; keep annotations tracked)
 dataset/val2017/

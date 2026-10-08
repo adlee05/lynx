@@ -87,8 +87,7 @@ class QdrantVectorStore:
                 field_schema=models.PayloadSchemaType.KEYWORD,
             )
 
-        # Stable IDs make startup repeatable: demo points are refreshed in
-        # place rather than duplicated on each API restart.
+        # Stable IDs keep benchmark setup repeatable across runs.
         self.client.upsert(
             collection_name=QDRANT_COLLECTION,
             points=[
