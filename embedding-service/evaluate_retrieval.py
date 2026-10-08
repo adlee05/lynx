@@ -1,13 +1,16 @@
 """Evaluate text-to-image retrieval on the COCO 2017 validation captions.
 
 Uses the cached image embeddings produced by clip_smoke.py and compares exact
-FAISS inner-product search with FAISS HNSW on the same normalized vectors.
+FAISS, FAISS HNSW, and Qdrant retrieval on the same normalized vectors. Set
+LYNX_QDRANT_BENCH_URL to include a Qdrant server benchmark.
 """
 
 import json
+import os
 import statistics
 import tempfile
 import time
+import uuid
 from pathlib import Path
 
 import faiss
@@ -218,6 +221,102 @@ def main() -> None:
             "p95_ms": percentile(values, 95),
         }
 
+    qdrant_server_results = None
+    server_url = os.getenv("LYNX_QDRANT_BENCH_URL", "").strip()
+    if server_url:
+        server_positions = np.empty((len(captions), max_k), dtype=np.int64)
+        server_latencies_ms: list[float] = []
+        server_collection = f"lynx_eval_{uuid.uuid4().hex[:12]}"
+        server_client = QdrantClient(
+            url=server_url,
+            api_key=os.getenv("QDRANT_API_KEY") or None,
+            timeout=120,
+        )
+        server_collection_created = False
+        try:
+            # Fail early if the configured URL does not reach a Qdrant server.
+            server_client.get_collections()
+            server_setup_started = time.perf_counter()
+            server_client.create_collection(
+                collection_name=server_collection,
+                vectors_config=models.VectorParams(
+                    size=image_vectors.shape[1],
+                    distance=models.Distance.COSINE,
+                ),
+            )
+            server_collection_created = True
+            server_client.create_payload_index(
+                collection_name=server_collection,
+                field_name="owner_id",
+                field_schema=models.PayloadSchemaType.KEYWORD,
+            )
+            server_setup_seconds = time.perf_counter() - server_setup_started
+
+            server_upsert_started = time.perf_counter()
+            server_client.upsert(
+                collection_name=server_collection,
+                points=[
+                    models.PointStruct(
+                        id=position,
+                        vector=vector.tolist(),
+                        payload={"filename": image_names[position], "owner_id": "benchmark"},
+                    )
+                    for position, vector in enumerate(image_vectors)
+                ],
+                wait=True,
+            )
+            server_upsert_seconds = time.perf_counter() - server_upsert_started
+
+            def server_query(vector: np.ndarray) -> list[int]:
+                points = server_client.query_points(
+                    collection_name=server_collection,
+                    query=vector.tolist(),
+                    query_filter=models.Filter(
+                        must=[
+                            models.FieldCondition(
+                                key="owner_id",
+                                match=models.MatchValue(value="benchmark"),
+                            )
+                        ]
+                    ),
+                    limit=max_k,
+                    with_payload=["filename"],
+                ).points
+                return [image_position_by_name[point.payload["filename"]] for point in points]
+
+            # Warm connection and server caches before collecting steady-state latencies.
+            for vector in text_vectors[: min(20, len(text_vectors))]:
+                server_query(vector)
+            for query_number, vector in enumerate(text_vectors):
+                started = time.perf_counter_ns()
+                positions = server_query(vector)
+                server_latencies_ms.append((time.perf_counter_ns() - started) / 1_000_000)
+                server_positions[query_number] = positions
+        finally:
+            if server_collection_created:
+                server_client.delete_collection(server_collection)
+            server_client.close()
+
+        server_agreement: dict[str, float] = {}
+        for k in TOP_KS:
+            effective_k = min(k, max_k)
+            intersections = [
+                len(set(exact_positions[i, :effective_k]) & set(server_positions[i, :effective_k]))
+                / effective_k
+                for i in range(len(captions))
+            ]
+            server_agreement[f"top_k_overlap@{k}"] = float(np.mean(intersections))
+        qdrant_server_results = {
+            "mode": "Qdrant server over REST from the benchmark host; query embedding excluded",
+            "server_url": server_url,
+            "collection_setup_seconds": server_setup_seconds,
+            "upsert_seconds": server_upsert_seconds,
+            "search_latency": latency_stats(server_latencies_ms),
+            "semantic_retrieval": quality_metrics(server_positions),
+            "agreement_with_exact": server_agreement,
+            "temporary_collection_deleted": True,
+        }
+
     results = {
         "dataset": "COCO 2017 validation captions, restricted to cached image subset",
         "model": f"{MODEL_NAME}/{PRETRAINED}",
@@ -258,6 +357,12 @@ def main() -> None:
             "Caption annotations provide weak relevance labels; results are not human judgments.",
         ],
     }
+
+    if qdrant_server_results is not None:
+        results["qdrant_server"] = qdrant_server_results
+        results["notes"].append(
+            "Qdrant server latency is measured from the host over REST after warm-up; it excludes CLIP text embedding and Go API overhead."
+        )
 
     OUTPUT_PATH.write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(results, indent=2))

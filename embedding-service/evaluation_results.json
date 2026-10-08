@@ -1,7 +1,7 @@
 {
   "dataset": "COCO 2017 validation captions, restricted to cached image subset",
   "model": "ViT-B-32/laion2b_s34b_b79k",
-  "device": "cpu",
+  "device": "cuda",
   "image_count": 500,
   "caption_query_count": 2501,
   "embedding_dimension": 512,
@@ -11,15 +11,15 @@
     "ef_search": 64
   },
   "text_embedding": {
-    "total_seconds_batched": 70.2338487900015,
-    "mean_ms_per_caption_batched": 28.082306593363256
+    "total_seconds_batched": 14.498754135998752,
+    "mean_ms_per_caption_batched": 5.797182781286986
   },
   "exact_flat": {
-    "index_build_seconds": 0.00017571900025359355,
+    "index_build_seconds": 0.0011903220001840964,
     "search_latency": {
-      "mean_ms": 0.02278479288284686,
-      "p50_ms": 0.022007,
-      "p95_ms": 0.02657
+      "mean_ms": 0.038320480207916834,
+      "p50_ms": 0.036735,
+      "p95_ms": 0.04592
     },
     "semantic_retrieval": {
       "recall@1": 0.6765293882447021,
@@ -29,11 +29,11 @@
     }
   },
   "hnsw": {
-    "index_build_seconds": 0.24105716200028837,
+    "index_build_seconds": 0.030685415000334615,
     "search_latency": {
-      "mean_ms": 0.03948457137145142,
-      "p50_ms": 0.038905,
-      "p95_ms": 0.045187
+      "mean_ms": 0.0702653962415034,
+      "p50_ms": 0.069045,
+      "p95_ms": 0.081024
     },
     "semantic_retrieval": {
       "recall@1": 0.6765293882447021,
@@ -49,12 +49,12 @@
   },
   "qdrant_local": {
     "mode": "persistent local client, temporary disk path; no Qdrant server",
-    "collection_setup_seconds": 0.011556475001270883,
-    "upsert_seconds": 0.14591968000058841,
+    "collection_setup_seconds": 0.002351615999941714,
+    "upsert_seconds": 0.23766865200013854,
     "search_latency": {
-      "mean_ms": 3.4053404150339865,
-      "p50_ms": 3.354573,
-      "p95_ms": 3.926808
+      "mean_ms": 6.660103019992003,
+      "p50_ms": 6.112447,
+      "p95_ms": 9.64974
     },
     "semantic_retrieval": {
       "recall@1": 0.6765293882447021,
@@ -68,10 +68,35 @@
       "top_k_overlap@10": 1.0
     }
   },
+  "qdrant_server": {
+    "mode": "Qdrant server over REST from the benchmark host; query embedding excluded",
+    "server_url": "http://127.0.0.1:6333",
+    "collection_setup_seconds": 0.20293179199870792,
+    "upsert_seconds": 0.304209718000493,
+    "search_latency": {
+      "mean_ms": 4.839926092363054,
+      "p50_ms": 4.435767,
+      "p95_ms": 7.697771
+    },
+    "semantic_retrieval": {
+      "recall@1": 0.6765293882447021,
+      "recall@5": 0.9184326269492203,
+      "recall@10": 0.9632147141143542,
+      "mrr@10": 0.7762599722015956
+    },
+    "agreement_with_exact": {
+      "top_k_overlap@1": 1.0,
+      "top_k_overlap@5": 1.0,
+      "top_k_overlap@10": 1.0
+    },
+    "temporary_collection_deleted": true
+  },
   "notes": [
     "Semantic recall uses the caption's own COCO image as the relevant target.",
     "HNSW agreement is overlap with exact top-k, not semantic relevance.",
     "Qdrant measurements use the Python local client, not a Qdrant server deployment.",
-    "Caption annotations provide weak relevance labels; results are not human judgments."
+    "Local mode applies the owner filter but does not use Qdrant server payload indexes.",
+    "Caption annotations provide weak relevance labels; results are not human judgments.",
+    "Qdrant server latency is measured from the host over REST after warm-up; it excludes CLIP text embedding and Go API overhead."
   ]
 }
