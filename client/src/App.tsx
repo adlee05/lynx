@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { FormEvent } from 'react'
 import AuthPage from './AuthPage'
+import LibraryPage from './LibraryPage'
+import ResultImage from './ResultImage'
 import './App.css'
 
 type SearchResult = { rank: number; filename: string; image_url: string; score: number }
@@ -8,25 +10,6 @@ type SearchResponse = { query: string; results: SearchResult[] }
 type SearchMode = 'text' | 'image'
 
 const suggestions = ['a dog playing in water', 'a street at night', 'people riding bicycles']
-
-function ResultImage({ url, token, alt }: { url: string; token: string; alt: string }) {
-  const [source, setSource] = useState('')
-  useEffect(() => {
-    let objectUrl = ''
-    fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-      .then((response) => {
-        if (!response.ok) throw new Error('Image request failed')
-        return response.blob()
-      })
-      .then((blob) => {
-        objectUrl = URL.createObjectURL(blob)
-        setSource(objectUrl)
-      })
-      .catch(() => setSource(''))
-    return () => { if (objectUrl) URL.revokeObjectURL(objectUrl) }
-  }, [url, token])
-  return source ? <img src={source} alt={alt} loading="lazy" /> : <div className="image-loading">Image unavailable</div>
-}
 
 function SearchPage() {
   const [query, setQuery] = useState('')
@@ -112,7 +95,7 @@ function SearchPage() {
     <main className="app-shell">
       <header className="topbar">
         <a className="brand" href="/" aria-label="Lynx home"><span className="brand-mark">L</span><span>lynx<span className="brand-dot">.</span></span></a>
-        <div className="account-actions"><span className="topbar-note"><span className="status-dot" /> {username}</span><button type="button" onClick={signOut}>Sign out</button></div>
+        <div className="account-actions"><span className="topbar-note"><span className="status-dot" /> {username}</span><a href="/library">My Library</a><button type="button" onClick={signOut}>Sign out</button></div>
       </header>
 
       <section className="hero">
@@ -146,5 +129,6 @@ export default function App() {
   if (path === '/login' || path === '/register') {
     return <AuthPage mode={path.slice(1) as 'login' | 'register'} />
   }
+  if (path === '/library') return <LibraryPage />
   return <SearchPage />
 }

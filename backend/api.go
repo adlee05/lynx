@@ -52,6 +52,20 @@ type SearchResponse struct {
 	Results []SearchResult `json:"results"`
 }
 
+type LibraryImage struct {
+	Filename  string    `json:"filename"`
+	ImageURL  string    `json:"image_url"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type LibraryResponse struct {
+	Images      []LibraryImage `json:"images"`
+	Page        int            `json:"page"`
+	PageSize    int            `json:"page_size"`
+	TotalImages int            `json:"total_images"`
+	TotalPages  int            `json:"total_pages"`
+}
+
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{3,32}$`)
 
 func newAPI(db *sql.DB) *API {
@@ -78,10 +92,82 @@ func (a *API) routes() http.Handler {
 	mux.HandleFunc("POST /api/login", a.login)
 	mux.HandleFunc("POST /api/logout", a.logout)
 	mux.HandleFunc("POST /api/upload", a.upload)
+	mux.HandleFunc("GET /api/library", a.myLibrary)
 	mux.HandleFunc("POST /api/search", a.searchText)
 	mux.HandleFunc("POST /api/search/image", a.searchImage)
 	mux.HandleFunc("GET /api/images/{filename}", a.getImage)
 	return mux
+}
+
+func (a *API) myLibrary(w http.ResponseWriter, r *http.Request) {
+	user, err := a.authenticatedUser(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	page := 1
+	if raw := r.URL.Query().Get("page"); raw != "" {
+		page, err = strconv.Atoi(raw)
+		if err != nil || page < 1 {
+			writeError(w, http.StatusBadRequest, "page must be a positive integer")
+			return
+		}
+	}
+	pageSize := 12
+	if raw := r.URL.Query().Get("page_size"); raw != "" {
+		pageSize, err = strconv.Atoi(raw)
+		if err != nil || pageSize < 1 {
+			writeError(w, http.StatusBadRequest, "page_size must be a positive integer")
+			return
+		}
+		if pageSize > 48 {
+			pageSize = 48
+		}
+	}
+
+	var total int
+	if err := a.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM images WHERE owner_id=$1", user.ID).Scan(&total); err != nil {
+		log.Printf("count library images: %v", err)
+		writeError(w, http.StatusInternalServerError, "Could not load your library")
+		return
+	}
+	totalPages := 0
+	if total > 0 {
+		totalPages = (total + pageSize - 1) / pageSize
+		if page > totalPages {
+			page = totalPages
+		}
+	}
+
+	images := make([]LibraryImage, 0, pageSize)
+	rows, err := a.db.QueryContext(r.Context(), `
+		SELECT filename, created_at FROM images
+		WHERE owner_id=$1
+		ORDER BY created_at DESC, id DESC
+		LIMIT $2 OFFSET $3`, user.ID, pageSize, (page-1)*pageSize)
+	if err != nil {
+		log.Printf("query library images: %v", err)
+		writeError(w, http.StatusInternalServerError, "Could not load your library")
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var image LibraryImage
+		if err := rows.Scan(&image.Filename, &image.CreatedAt); err != nil {
+			writeError(w, http.StatusInternalServerError, "Could not load your library")
+			return
+		}
+		image.ImageURL = "/api/images/" + image.Filename
+		images = append(images, image)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "Could not load your library")
+		return
+	}
+	writeJSON(w, http.StatusOK, LibraryResponse{
+		Images: images, Page: page, PageSize: pageSize, TotalImages: total, TotalPages: totalPages,
+	})
 }
 
 func (a *API) health(w http.ResponseWriter, r *http.Request) {
