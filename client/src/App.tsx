@@ -1,121 +1,128 @@
 import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
+import type { FormEvent } from 'react'
 import './App.css'
 
+type SearchResult = {
+  rank: number
+  filename: string
+  image_url: string
+  score: number
+}
+
+type SearchResponse = {
+  query: string
+  results: SearchResult[]
+}
+
+const suggestions = ['a dog playing in water', 'a street at night', 'people riding bicycles']
+
 function App() {
-  const [count, setCount] = useState(0)
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<SearchResult[]>([])
+  const [searchedQuery, setSearchedQuery] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  async function handleSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const cleanQuery = query.trim()
+    if (!cleanQuery || loading) return
+
+    setLoading(true)
+    setError('')
+    setResults([])
+    try {
+      const response = await fetch('/api/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: cleanQuery, top_k: 10 }),
+      })
+      if (!response.ok) {
+        const message = await response.text()
+        throw new Error(message || `Search failed (${response.status})`)
+      }
+      const data: SearchResponse = await response.json()
+      setResults(data.results)
+      setSearchedQuery(data.query)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not reach Lynx. Check that the Go and Python services are running.')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    <main className="app-shell">
+      <header className="topbar">
+        <a className="brand" href="/" aria-label="Lynx home">
+          <span className="brand-mark">L</span>
+          <span>lynx<span className="brand-dot">.</span></span>
+        </a>
+        <span className="topbar-note"><span className="status-dot" /> Semantic image search</span>
+      </header>
 
-      <div className="ticks"></div>
+      <section className="hero">
+        <div className="eyebrow"><span /> SEARCH BY MEANING</div>
+        <h1>Find the image<br /><span>you have in mind.</span></h1>
+        <p className="intro">Describe a moment, a place, or an idea. Lynx finds images that match what you mean.</p>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
+        <form className="search-form" onSubmit={handleSearch}>
+          <span className="search-icon" aria-hidden="true">⌕</span>
+          <input
+            aria-label="Describe the image you are looking for"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Try “a dog playing in water”…"
+          />
+          <button type="submit" disabled={loading || !query.trim()}>
+            {loading ? <><span className="spinner" /> Searching</> : <>Search <span aria-hidden="true">↗</span></>}
+          </button>
+        </form>
+
+        <div className="suggestions" aria-label="Example searches">
+          <span>Try</span>
+          {suggestions.map((suggestion) => (
+            <button key={suggestion} type="button" onClick={() => setQuery(suggestion)}>{suggestion}</button>
+          ))}
         </div>
       </section>
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+      <section className="results-section" aria-live="polite">
+        {error && <div className="notice error-notice">{error}</div>}
+        {loading && <div className="loading-state"><span className="spinner" /> Finding images related to “{query.trim()}”</div>}
+        {!loading && results.length > 0 && (
+          <>
+            <div className="results-heading">
+              <div><span className="eyebrow">YOUR RESULTS</span><h2>Images for “{searchedQuery}”</h2></div>
+              <span className="result-count">{results.length} matches</span>
+            </div>
+            <div className="image-grid">
+              {results.map((result) => (
+                <article className="image-card" key={result.filename}>
+                  <div className="image-wrap">
+                    <img src={result.image_url} alt={`Search result ${result.rank} for ${searchedQuery}`} loading="lazy" />
+                    <span className="rank-badge">{String(result.rank).padStart(2, '0')}</span>
+                  </div>
+                  <div className="card-caption">
+                    <span>{result.filename}</span>
+                    <span className="score" title="Cosine similarity">{result.score.toFixed(3)}</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </>
+        )}
+        {!loading && !error && results.length === 0 && (
+          <div className="empty-state">
+            <div className="empty-art" aria-hidden="true"><span>⌕</span><i /><b /></div>
+            <p>Your search results will appear here.</p>
+            <span>Start with a description above.</span>
+          </div>
+        )}
+      </section>
+
+      <footer><span>LYNX <i>•</i> VISION-LANGUAGE IMAGE RETRIEVAL</span><span>Powered by CLIP embeddings</span></footer>
+    </main>
   )
 }
 
