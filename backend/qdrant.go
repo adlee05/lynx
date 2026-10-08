@@ -13,6 +13,18 @@ import (
 
 const collectionName = "lynx_images"
 
+type qdrantCollectionInfo struct {
+	Result struct {
+		Config struct {
+			Params struct {
+				Vectors struct {
+					Distance string `json:"distance"`
+				} `json:"vectors"`
+			} `json:"params"`
+		} `json:"config"`
+	} `json:"result"`
+}
+
 func (a *API) qdrantURL(path string) string { return a.qdrantBase + path }
 
 func (a *API) qdrantRequest(ctx context.Context, method, path string, body any) (*http.Response, error) {
@@ -45,10 +57,19 @@ func (a *API) ensureQdrantCollection(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	response.Body.Close()
 	if response.StatusCode == http.StatusOK {
+		var info qdrantCollectionInfo
+		decodeErr := json.NewDecoder(response.Body).Decode(&info)
+		response.Body.Close()
+		if decodeErr != nil {
+			return fmt.Errorf("read Qdrant collection configuration: %w", decodeErr)
+		}
+		if info.Result.Config.Params.Vectors.Distance != "Cosine" {
+			return fmt.Errorf("Qdrant collection %q uses %q distance; Lynx requires Cosine. Create a Cosine collection and re-index images", collectionName, info.Result.Config.Params.Vectors.Distance)
+		}
 		return a.ensureOwnerPayloadIndex(ctx)
 	}
+	response.Body.Close()
 	if response.StatusCode != http.StatusNotFound {
 		return fmt.Errorf("Qdrant collection check returned %s", response.Status)
 	}
@@ -107,11 +128,11 @@ type qdrantQueryResponse struct {
 	} `json:"result"`
 }
 
-func (a *API) searchVectors(ctx context.Context, ownerID string, vector []float32, topK int, threshold float64) ([]SearchResult, error) {
+func (a *API) searchVectors(ctx context.Context, ownerID string, vector []float32, topK int, threshold float64) ([]SearchResult, *float64, error) {
 	response, err := a.qdrantRequest(ctx, http.MethodPost,
 		"/collections/"+url.PathEscape(collectionName)+"/points/query",
 		map[string]any{
-			"query": vector, "limit": topK, "score_threshold": threshold,
+			"query": vector, "limit": topK,
 			"with_payload": []string{"filename"},
 			"filter": map[string]any{"must": []any{map[string]any{
 				"key": "owner_id", "match": map[string]any{"value": ownerID},
@@ -119,17 +140,22 @@ func (a *API) searchVectors(ctx context.Context, ownerID string, vector []float3
 		},
 	)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, fmt.Errorf("Qdrant search returned %s", response.Status)
+		return nil, nil, fmt.Errorf("Qdrant search returned %s", response.Status)
 	}
 	var decoded qdrantQueryResponse
 	if err := json.NewDecoder(response.Body).Decode(&decoded); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	results := make([]SearchResult, 0, len(decoded.Result.Points))
+	var bestScore *float64
+	if len(decoded.Result.Points) > 0 {
+		score := decoded.Result.Points[0].Score
+		bestScore = &score
+	}
 	for _, point := range decoded.Result.Points {
 		filename, _ := point.Payload["filename"].(string)
 		if filename == "" || point.Score < threshold || strings.Contains(filename, "/") {
@@ -144,5 +170,5 @@ func (a *API) searchVectors(ctx context.Context, ownerID string, vector []float3
 	for i := range results {
 		results[i].Rank = i + 1
 	}
-	return results, nil
+	return results, bestScore, nil
 }

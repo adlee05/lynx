@@ -6,7 +6,7 @@ import ResultImage from './ResultImage'
 import './App.css'
 
 type SearchResult = { rank: number; filename: string; image_url: string; score: number }
-type SearchResponse = { query: string; results: SearchResult[] }
+type SearchResponse = { query: string; results: SearchResult[]; best_score?: number; min_score?: number }
 type SearchMode = 'text' | 'image'
 
 const suggestions = ['a dog playing in water', 'a street at night', 'people riding bicycles']
@@ -19,7 +19,6 @@ function SearchPage() {
   const [uploadProgress, setUploadProgress] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
   const [searchedQuery, setSearchedQuery] = useState('')
-  const [minScore, setMinScore] = useState(0.30)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -67,19 +66,22 @@ function SearchPage() {
     try {
       let response: Response
       if (mode === 'image' && queryImage) {
-        response = await fetch(`/api/search/image?min_score=${minScore.toFixed(2)}`, {
+        response = await fetch('/api/search/image', {
           method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': queryImage.type || 'application/octet-stream' }, body: queryImage,
         })
       } else {
         response = await fetch('/api/search', {
           method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: query.trim(), top_k: 10, min_score: minScore }),
+          body: JSON.stringify({ query: query.trim(), top_k: 10 }),
         })
       }
       const data = await response.json() as SearchResponse & { error?: string }
       if (!response.ok) throw new Error(data.error || 'Search failed')
       setResults(data.results); setSearchedQuery(data.query)
-      if (data.results.length === 0) setNotice('No photos met that minimum similarity score. Try lowering the threshold or upload more photos.')
+      if (data.results.length === 0) {
+        if (data.best_score !== undefined) setNotice(`The closest match scored ${data.best_score.toFixed(3)} cosine similarity, below Lynx’s relevance cutoff. Try a more specific description or upload more photos.`)
+        else setNotice('Your library has no indexed photos yet. Upload photos, then search again.')
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not reach Lynx. Check that the services are running.')
     } finally { setLoading(false) }
@@ -108,7 +110,6 @@ function SearchPage() {
           <button type="submit" disabled={loading || (mode === 'text' ? !query.trim() : !queryImage)}>{loading ? <><span className="spinner" /> Searching</> : <>Search <span aria-hidden="true">↗</span></>}</button>
         </form>
         {mode === 'text' && <div className="suggestions" aria-label="Example searches"><span>Try</span>{suggestions.map((suggestion) => <button key={suggestion} type="button" onClick={() => setQuery(suggestion)}>{suggestion}</button>)}</div>}
-        <div className="threshold-control"><label htmlFor="min-score">Minimum similarity <strong>{minScore.toFixed(2)}</strong></label><input id="min-score" type="range" min="0" max="0.9" step="0.05" value={minScore} onChange={(event) => setMinScore(Number(event.target.value))} /><span>Cosine similarity score, not a probability</span></div>
       </section>
 
       <section className="library-panel"><div><span className="eyebrow">YOUR LIBRARY</span><p>Add JPG, PNG, or WebP photos (up to 10 MB each) to make them searchable.</p></div><div className="upload-controls"><label className="choose-file" htmlFor="library-upload">{uploadImages.length === 0 ? 'Choose photos' : `${uploadImages.length} photos selected`}</label><input id="library-upload" type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => setUploadImages(Array.from(event.target.files || []))} /><button type="button" onClick={handleUpload} disabled={loading || uploadImages.length === 0}>{loading ? 'Uploading…' : `Upload ${uploadImages.length || ''} photos`}</button></div>{uploadProgress && <span className="upload-progress">{uploadProgress}</span>}</section>

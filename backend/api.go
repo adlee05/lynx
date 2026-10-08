@@ -48,8 +48,10 @@ type SearchResult struct {
 }
 
 type SearchResponse struct {
-	Query   string         `json:"query"`
-	Results []SearchResult `json:"results"`
+	Query     string         `json:"query"`
+	Results   []SearchResult `json:"results"`
+	BestScore *float64       `json:"best_score,omitempty"`
+	MinScore  float64        `json:"min_score"`
 }
 
 type LibraryImage struct {
@@ -67,6 +69,9 @@ type LibraryResponse struct {
 }
 
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{3,32}$`)
+
+const defaultMinimumCosineScore = 0.19
+const defaultImageMinimumCosineScore = 0.35
 
 func newAPI(db *sql.DB) *API {
 	return &API{
@@ -402,12 +407,12 @@ func (a *API) searchText(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "top_k must be between 1 and 20")
 		return
 	}
-	threshold := 0.30
+	threshold := defaultMinimumCosineScore
 	if input.MinScore != nil {
 		threshold = *input.MinScore
 	}
-	if threshold < 0 || threshold > 1 {
-		writeError(w, http.StatusBadRequest, "min_score must be between 0 and 1")
+	if threshold < -1 || threshold > 1 {
+		writeError(w, http.StatusBadRequest, "min_score must be between -1 and 1")
 		return
 	}
 	encoded, _ := json.Marshal(map[string]string{"text": input.Query})
@@ -417,13 +422,13 @@ func (a *API) searchText(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "Could not create the text embedding")
 		return
 	}
-	results, err := a.searchVectors(r.Context(), strconv.FormatInt(user.ID, 10), vector, input.TopK, threshold)
+	results, bestScore, err := a.searchVectors(r.Context(), strconv.FormatInt(user.ID, 10), vector, input.TopK, threshold)
 	if err != nil {
 		log.Printf("Qdrant text search: %v", err)
 		writeError(w, http.StatusBadGateway, "Vector search failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, SearchResponse{Query: input.Query, Results: results})
+	writeJSON(w, http.StatusOK, SearchResponse{Query: input.Query, Results: results, BestScore: bestScore, MinScore: threshold})
 }
 
 func (a *API) searchImage(w http.ResponseWriter, r *http.Request) {
@@ -434,7 +439,7 @@ func (a *API) searchImage(w http.ResponseWriter, r *http.Request) {
 	}
 	minScore, err := parseMinScore(r.URL.Query().Get("min_score"))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "min_score must be between 0 and 1")
+		writeError(w, http.StatusBadRequest, "min_score must be between -1 and 1")
 		return
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 10<<20))
@@ -447,22 +452,22 @@ func (a *API) searchImage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnsupportedMediaType, "Could not embed that image")
 		return
 	}
-	results, err := a.searchVectors(r.Context(), strconv.FormatInt(user.ID, 10), vector, 10, minScore)
+	results, bestScore, err := a.searchVectors(r.Context(), strconv.FormatInt(user.ID, 10), vector, 10, minScore)
 	if err != nil {
 		log.Printf("Qdrant image search: %v", err)
 		writeError(w, http.StatusBadGateway, "Vector search failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, SearchResponse{Query: "similar images", Results: results})
+	writeJSON(w, http.StatusOK, SearchResponse{Query: "similar images", Results: results, BestScore: bestScore, MinScore: minScore})
 }
 
 func parseMinScore(raw string) (float64, error) {
 	if raw == "" {
-		return 0.30, nil
+		return defaultImageMinimumCosineScore, nil
 	}
 	value, err := strconv.ParseFloat(raw, 64)
-	if err != nil || value < 0 || value > 1 {
-		return 0, fmt.Errorf("score must be between zero and one")
+	if err != nil || value < -1 || value > 1 {
+		return 0, fmt.Errorf("score must be between minus one and one")
 	}
 	return value, nil
 }
