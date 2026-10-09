@@ -37,10 +37,6 @@ services:
       timeout: 6s
       start_period: 180s
       retries: 30
-    environment:
-      HF_HOME: /model-cache
-    volumes:
-      - lynx_model_cache:/model-cache
     restart: unless-stopped
 
   backend:
@@ -91,4 +87,3 @@ volumes:
   lynx_postgres:
   lynx_qdrant:
   lynx_uploads:
-  lynx_model_cache:
